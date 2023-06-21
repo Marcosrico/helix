@@ -58,6 +58,7 @@ public class UpdatePuppy extends AbstractPuppy {
             System.out.println(
                 Thread.currentThread().getName() + " successfully updated node " + random + " at time: "
                     + System.currentTimeMillis());
+        eventChangeCounter++;
       } catch (MetaClientNoNodeException e) {
         System.out.println(Thread.currentThread().getName() + " failed to update node " + random + ", it does not exist");
       } catch (IllegalArgumentException e) {

@@ -22,6 +22,7 @@ package org.apache.helix.metaclient.impl.zk.TestMultiThreadStressTest;
 import org.apache.helix.metaclient.api.MetaClientInterface;
 import org.apache.helix.metaclient.exception.MetaClientNoNodeException;
 
+import java.util.Objects;
 import java.util.Random;
 
 public class GetPuppy extends AbstractPuppy {
@@ -43,10 +44,14 @@ public class GetPuppy extends AbstractPuppy {
     } else {
       try {
         System.out.println(Thread.currentThread().getName() + " is attempting to read node: " + random);
-        metaclient.get("/test/" + random);
-        System.out.println(
-            Thread.currentThread().getName() + " successfully read node " + random + " at time: "
-                + System.currentTimeMillis());
+        if (Objects.equals(metaclient.get("/test/" + random), null)) {
+          System.out.println(Thread.currentThread().getName() + " failed to read node " + random + ", it does not exist");
+        } else {
+          System.out.println(
+              Thread.currentThread().getName() + " successfully read node " + random + " at time: "
+                  + System.currentTimeMillis());
+          eventChangeCounter++;
+        }
       } catch (MetaClientNoNodeException e) {
         System.out.println(Thread.currentThread().getName() + " failed to read node " + random + ", it does not exist");
       } catch (IllegalArgumentException e) {

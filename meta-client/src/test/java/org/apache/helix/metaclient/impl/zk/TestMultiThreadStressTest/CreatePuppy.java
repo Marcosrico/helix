@@ -49,7 +49,7 @@ public class CreatePuppy extends AbstractPuppy {
         metaclient.create("/test/" + random,"test");
         System.out.println(Thread.currentThread().getName() + " successfully created node " + random + " at time: " + System.currentTimeMillis());
         eventChangeCounter++;
-      } catch (MetaClientException e) { // Catch more specific
+      } catch (MetaClientException e) { // TODO: Catch more specific
         // Expected exception
         System.out.println(Thread.currentThread().getName() + " failed to create node " + random + ", it already exists");
       }

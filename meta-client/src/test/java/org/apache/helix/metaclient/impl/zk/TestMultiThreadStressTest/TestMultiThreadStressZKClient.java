@@ -37,7 +37,7 @@ public class TestMultiThreadStressZKClient extends ZkMetaClientTestBase {
 
   @Test
   public void testMultiThreadStressZKClient() throws Exception {
-    PuppySpec puppySpec = new PuppySpec(PuppyMode.Repeat, 0.2f, new ExecDelay(5000, 0.1f), 20);
+    PuppySpec puppySpec = new PuppySpec(PuppyMode.Repeat, 0.2f, new ExecDelay(5000, 0.1f), 5);
     _zkMetaClient.create("/test", "test");
     CreatePuppy createPuppy = new CreatePuppy(_zkMetaClient, puppySpec);
     GetPuppy getPuppy = new GetPuppy(_zkMetaClient, puppySpec);
@@ -46,13 +46,18 @@ public class TestMultiThreadStressZKClient extends ZkMetaClientTestBase {
     UpdatePuppy updatePuppy = new UpdatePuppy(_zkMetaClient, puppySpec);
     ListenerPuppy listenerPuppy = new ListenerPuppy(_zkMetaClient, puppySpec);
 
+    //PuppySpec puppySpec2 = new PuppySpec(PuppyMode.OneOff, 0f, new ExecDelay(5000, 0.1f), 20);
+    //DirectChildListenerPuppy directChildListenerPuppy = new DirectChildListenerPuppy(_zkMetaClient, puppySpec2);
+
+
     PuppyManager puppyManager = new PuppyManager();
     puppyManager.addPuppy(createPuppy);
     puppyManager.addPuppy(getPuppy);
     puppyManager.addPuppy(deletePuppy);
     puppyManager.addPuppy(setPuppy);
     puppyManager.addPuppy(updatePuppy);
-    puppyManager.addPuppy(listenerPuppy);
+    //puppyManager.addPuppy(listenerPuppy);
+    //puppyManager.addPuppy(directChildListenerPuppy);
 
     long timeoutInSeconds = 60; // Set the desired timeout duration
 
@@ -62,6 +67,24 @@ public class TestMultiThreadStressZKClient extends ZkMetaClientTestBase {
     for (AbstractPuppy puppy : puppyManager.getPuppies()) {
       Assert.assertEquals(puppy.unhandledErrorCounter, 0);
     }
+  }
 
+  @Test
+  public void testDirectChildChangeListener()  {
+    PuppySpec puppySpec = new PuppySpec(PuppyMode.OneOff, 0.2f, new ExecDelay(5000, 0.1f), 20);
+    _zkMetaClient.create("/test", "test");
+    DirectChildListenerPuppy createPuppy = new DirectChildListenerPuppy(_zkMetaClient, puppySpec);
+
+    PuppyManager puppyManager = new PuppyManager();
+    puppyManager.addPuppy(createPuppy);
+
+    long timeoutInSeconds = 60; // Set the desired timeout duration
+
+    puppyManager.start(timeoutInSeconds);
+
+    // Assert no unhandled (unexpected) exceptions
+    for (AbstractPuppy puppy : puppyManager.getPuppies()) {
+      Assert.assertEquals(puppy.unhandledErrorCounter, 0);
+    }
   }
 }

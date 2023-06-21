@@ -19,14 +19,16 @@ package org.apache.helix.metaclient.impl.zk.TestMultiThreadStressTest;
  * under the License.
  */
 
+import org.apache.helix.metaclient.api.DataChangeListener;
+import org.apache.helix.metaclient.api.DirectChildChangeListener;
 import org.apache.helix.metaclient.api.MetaClientInterface;
 import org.apache.helix.metaclient.exception.MetaClientNoNodeException;
 
 import java.util.Random;
 
-public class DeletePuppy extends AbstractPuppy {
+public class DirectChildListenerPuppy extends AbstractPuppy {
 
-  public DeletePuppy(MetaClientInterface<String> metaclient, PuppySpec puppySpec) {
+  public DirectChildListenerPuppy(MetaClientInterface<String> metaclient, PuppySpec puppySpec) {
     super(metaclient, puppySpec);
   }
 
@@ -36,22 +38,32 @@ public class DeletePuppy extends AbstractPuppy {
     if (shouldIntroduceError()) {
       // Intentional error
       try {
-        metaclient.delete("invalid");
+        DirectChildChangeListener listener = new DirectChildChangeListener() {
+          @Override
+          public void handleDirectChildChange(String key) throws Exception {
+            ;
+          }
+        };
+        metaclient.subscribeDirectChildChange("invalid", listener, false);
       } catch (IllegalArgumentException e) {
-        System.out.println(Thread.currentThread().getName() + " intentionally deleted an invalid path.");
+        System.out.println(Thread.currentThread().getName() + " intentionally set a direct child listener on an invalid path.");
       }
     } else {
-      // Delete possibly valid node
       try {
-        System.out.println(Thread.currentThread().getName() + " is attempting to delete node: " + random);
-        if (metaclient.delete("/test/" + random)) {
-          System.out.println(Thread.currentThread().getName() + " successfully deleted node " + random + " at time: " + System.currentTimeMillis());
-          eventChangeCounter++;
-        } else {
-          System.out.println(Thread.currentThread().getName() + " failed to delete node " + random + ", it does not exist");
-        }
-      } catch (Exception e) { // TODO: Modify exception
-        throw new RuntimeException(e);
+        System.out.println(Thread.currentThread().getName() + " is attempting to set a direct child listener on node test");
+        DirectChildChangeListener listener = new DirectChildChangeListener() {
+          @Override
+          public void handleDirectChildChange(String key) throws Exception {
+            eventChangeCounter++;
+            ;
+          }
+        };
+        metaclient.subscribeDirectChildChange("/test", listener, false);
+        System.out.println(
+            Thread.currentThread().getName() + " successfully set a direct child listener on node test "
+                + System.currentTimeMillis());
+      } catch (MetaClientNoNodeException e) {
+        System.out.println(Thread.currentThread().getName() + " failed to set a direct child listener on test, it does not exist");
       }
     }
   }
