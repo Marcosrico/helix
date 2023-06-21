@@ -21,6 +21,7 @@ package org.apache.helix.metaclient.impl.zk.TestMultiThreadStressTest;
 
 import org.apache.helix.metaclient.impl.zk.ZkMetaClient;
 import org.apache.helix.metaclient.impl.zk.ZkMetaClientTestBase;
+import org.testng.Assert;
 import org.testng.annotations.BeforeTest;
 import org.testng.annotations.Test;
 
@@ -39,14 +40,28 @@ public class TestMultiThreadStressZKClient extends ZkMetaClientTestBase {
     PuppySpec puppySpec = new PuppySpec(PuppyMode.Repeat, 0.2f, new ExecDelay(5000, 0.1f), 20);
     _zkMetaClient.create("/test", "test");
     CreatePuppy createPuppy = new CreatePuppy(_zkMetaClient, puppySpec);
+    GetPuppy getPuppy = new GetPuppy(_zkMetaClient, puppySpec);
+    DeletePuppy deletePuppy = new DeletePuppy(_zkMetaClient, puppySpec);
+    SetPuppy setPuppy = new SetPuppy(_zkMetaClient, puppySpec);
+    UpdatePuppy updatePuppy = new UpdatePuppy(_zkMetaClient, puppySpec);
+    ListenerPuppy listenerPuppy = new ListenerPuppy(_zkMetaClient, puppySpec);
 
     PuppyManager puppyManager = new PuppyManager();
     puppyManager.addPuppy(createPuppy);
-    puppyManager.addPuppy(createPuppy);
-    // Add more puppies as needed
+    puppyManager.addPuppy(getPuppy);
+    puppyManager.addPuppy(deletePuppy);
+    puppyManager.addPuppy(setPuppy);
+    puppyManager.addPuppy(updatePuppy);
+    puppyManager.addPuppy(listenerPuppy);
 
     long timeoutInSeconds = 60; // Set the desired timeout duration
 
     puppyManager.start(timeoutInSeconds);
+
+    // Assert no unhandled (unexpected) exceptions
+    for (AbstractPuppy puppy : puppyManager.getPuppies()) {
+      Assert.assertEquals(puppy.unhandledErrorCounter, 0);
+    }
+
   }
 }

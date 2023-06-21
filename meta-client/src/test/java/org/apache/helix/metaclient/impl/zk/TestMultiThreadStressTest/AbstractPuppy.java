@@ -29,6 +29,7 @@ public abstract class AbstractPuppy implements Runnable {
   protected MetaClientInterface<String> metaclient;
   protected PuppySpec puppySpec;
   protected int eventChangeCounter;
+  protected int unhandledErrorCounter;
 
   public AbstractPuppy(MetaClientInterface<String> metaclient, PuppySpec puppySpec) {
     this.metaclient = metaclient;
@@ -54,11 +55,21 @@ public abstract class AbstractPuppy implements Runnable {
     try {
       while (true) {
         if (puppySpec.getMode() == PuppyMode.OneOff) {
-          bark();
+          try {
+            bark();
+          } catch (Exception e) {
+            unhandledErrorCounter++;
+            e.printStackTrace();
+          }
           cleanup();
           break;
         } else {
-          bark();
+          try {
+            bark();
+          } catch (Exception e) {
+            unhandledErrorCounter++;
+            e.printStackTrace();
+          }
           Thread.sleep(puppySpec.getExecDelay().getNextDelay());
         }
       }

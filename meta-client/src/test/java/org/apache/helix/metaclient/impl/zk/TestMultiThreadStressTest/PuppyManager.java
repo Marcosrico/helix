@@ -38,6 +38,10 @@ public class PuppyManager {
     puppies.add(puppy);
   }
 
+  public List<AbstractPuppy> getPuppies() {
+    return puppies;
+  }
+
   public void start(long timeoutInSeconds) {
     for (AbstractPuppy puppy : puppies) {
       executorService.submit(puppy);
@@ -51,7 +55,8 @@ public class PuppyManager {
 
     // Add all change counters and compare with event change listener
     for (AbstractPuppy puppy : puppies) {
-      System.out.println(puppy.eventChangeCounter);
+      System.out.println("Change counter: " + puppy.eventChangeCounter);
+      System.out.println("Error counter: " + puppy.unhandledErrorCounter + " for " + puppy.getClass());
     }
 
     stop();
