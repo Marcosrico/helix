@@ -20,7 +20,6 @@ package org.apache.helix.metaclient.impl.zk.TestMultiThreadStressTest;
  */
 
 import org.apache.helix.metaclient.api.MetaClientInterface;
-import org.apache.helix.metaclient.exception.MetaClientNoNodeException;
 
 import java.util.Random;
 
@@ -37,6 +36,8 @@ public class DeletePuppy extends AbstractPuppy {
       // Intentional error
       try {
         metaclient.delete("invalid");
+        // Will not reach if error is correctly raised
+        unhandledErrorCounter++;
       } catch (IllegalArgumentException e) {
         System.out.println(Thread.currentThread().getName() + " intentionally deleted an invalid path.");
       }

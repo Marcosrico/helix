@@ -38,6 +38,8 @@ public class GetPuppy extends AbstractPuppy {
       // Intentional error
       try {
         metaclient.get("invalid");
+        // Will not reach if error is correctly raised
+        unhandledErrorCounter++;
       } catch (IllegalArgumentException e) {
         System.out.println(Thread.currentThread().getName() + " intentionally tried to read an invalid path.");
       }
@@ -50,10 +52,7 @@ public class GetPuppy extends AbstractPuppy {
           System.out.println(
               Thread.currentThread().getName() + " successfully read node " + random + " at time: "
                   + System.currentTimeMillis());
-          eventChangeCounter++;
         }
-      } catch (MetaClientNoNodeException e) {
-        System.out.println(Thread.currentThread().getName() + " failed to read node " + random + ", it does not exist");
       } catch (IllegalArgumentException e) {
         if (!e.getMessage().equals("Can not subscribe one time watcher when ZkClient is using PersistWatcher")) {
           throw e;

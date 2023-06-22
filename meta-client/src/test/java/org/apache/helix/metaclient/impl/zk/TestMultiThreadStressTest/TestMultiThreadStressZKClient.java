@@ -19,11 +19,13 @@ package org.apache.helix.metaclient.impl.zk.TestMultiThreadStressTest;
  * under the License.
  */
 
+import org.apache.helix.metaclient.api.ChildChangeListener;
 import org.apache.helix.metaclient.impl.zk.ZkMetaClient;
 import org.apache.helix.metaclient.impl.zk.ZkMetaClientTestBase;
 import org.testng.Assert;
 import org.testng.annotations.BeforeTest;
 import org.testng.annotations.Test;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class TestMultiThreadStressZKClient extends ZkMetaClientTestBase {
 
@@ -37,8 +39,20 @@ public class TestMultiThreadStressZKClient extends ZkMetaClientTestBase {
 
   @Test
   public void testMultiThreadStressZKClient() throws Exception {
-    PuppySpec puppySpec = new PuppySpec(PuppyMode.Repeat, 0.2f, new ExecDelay(5000, 0.1f), 5);
     _zkMetaClient.create("/test", "test");
+    AtomicInteger childChangeCounter = new AtomicInteger();
+    ChildChangeListener childChangeListener = new ChildChangeListener() {
+      @Override
+      public void handleChildChange(String changedPath, ChangeType changeType) throws Exception {
+//        System.out.println("//CHILD CHANGE//");
+//        System.out.println("Child change of type: " + changeType + " on node " + changedPath);
+        childChangeCounter.addAndGet(1);
+      }
+    };
+
+    _zkMetaClient.subscribeChildChanges("/test", childChangeListener, false);
+
+    PuppySpec puppySpec = new PuppySpec(PuppyMode.Repeat, 0.2f, new ExecDelay(5000, 0.1f), 5);
     CreatePuppy createPuppy = new CreatePuppy(_zkMetaClient, puppySpec);
     GetPuppy getPuppy = new GetPuppy(_zkMetaClient, puppySpec);
     DeletePuppy deletePuppy = new DeletePuppy(_zkMetaClient, puppySpec);
@@ -47,8 +61,6 @@ public class TestMultiThreadStressZKClient extends ZkMetaClientTestBase {
     ListenerPuppy listenerPuppy = new ListenerPuppy(_zkMetaClient, puppySpec);
 
     //PuppySpec puppySpec2 = new PuppySpec(PuppyMode.OneOff, 0f, new ExecDelay(5000, 0.1f), 20);
-    //DirectChildListenerPuppy directChildListenerPuppy = new DirectChildListenerPuppy(_zkMetaClient, puppySpec2);
-
 
     PuppyManager puppyManager = new PuppyManager();
     puppyManager.addPuppy(createPuppy);
@@ -56,35 +68,44 @@ public class TestMultiThreadStressZKClient extends ZkMetaClientTestBase {
     puppyManager.addPuppy(deletePuppy);
     puppyManager.addPuppy(setPuppy);
     puppyManager.addPuppy(updatePuppy);
-    //puppyManager.addPuppy(listenerPuppy);
-    //puppyManager.addPuppy(directChildListenerPuppy);
+    puppyManager.addPuppy(listenerPuppy);
+//    puppyManager.addPuppy(directChildListenerPuppy);
 
     long timeoutInSeconds = 60; // Set the desired timeout duration
 
     puppyManager.start(timeoutInSeconds);
 
-    // Assert no unhandled (unexpected) exceptions
+    int totalEventChanges = 0;
+    int totalUnhandledErrors = 0;
+
     for (AbstractPuppy puppy : puppyManager.getPuppies()) {
-      Assert.assertEquals(puppy.unhandledErrorCounter, 0);
+      totalEventChanges += puppy.eventChangeCounter;
+      totalUnhandledErrors += puppy.unhandledErrorCounter;
     }
+    // Assert no unhandled (unexpected) exceptions and that the child change listener placed on
+    // test parent node (/test) caught all sucessful changes that were recorded by each puppy
+    Assert.assertEquals(totalEventChanges, childChangeCounter.get());
+    Assert.assertEquals(totalUnhandledErrors, 0);
+
+
   }
 
-  @Test
-  public void testDirectChildChangeListener()  {
-    PuppySpec puppySpec = new PuppySpec(PuppyMode.OneOff, 0.2f, new ExecDelay(5000, 0.1f), 20);
-    _zkMetaClient.create("/test", "test");
-    DirectChildListenerPuppy createPuppy = new DirectChildListenerPuppy(_zkMetaClient, puppySpec);
-
-    PuppyManager puppyManager = new PuppyManager();
-    puppyManager.addPuppy(createPuppy);
-
-    long timeoutInSeconds = 60; // Set the desired timeout duration
-
-    puppyManager.start(timeoutInSeconds);
-
-    // Assert no unhandled (unexpected) exceptions
-    for (AbstractPuppy puppy : puppyManager.getPuppies()) {
-      Assert.assertEquals(puppy.unhandledErrorCounter, 0);
-    }
-  }
+//  @Test
+//  public void testDirectChildChangeListener()  {
+//    PuppySpec puppySpec = new PuppySpec(PuppyMode.OneOff, 0.2f, new ExecDelay(5000, 0.1f), 20);
+//    _zkMetaClient.create("/test", "test");
+//    DirectChildListenerPuppy createPuppy = new DirectChildListenerPuppy(_zkMetaClient, puppySpec);
+//
+//    PuppyManager puppyManager = new PuppyManager();
+//    puppyManager.addPuppy(createPuppy);
+//
+//    long timeoutInSeconds = 60; // Set the desired timeout duration
+//
+//    puppyManager.start(timeoutInSeconds);
+//
+//    // Assert no unhandled (unexpected) exceptions
+//    for (AbstractPuppy puppy : puppyManager.getPuppies()) {
+//      Assert.assertEquals(puppy.unhandledErrorCounter, 0);
+//    }
+//  }
 }

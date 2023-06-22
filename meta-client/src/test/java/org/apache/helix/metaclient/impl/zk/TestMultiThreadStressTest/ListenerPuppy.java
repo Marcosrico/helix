@@ -37,27 +37,24 @@ public class ListenerPuppy extends AbstractPuppy {
     if (shouldIntroduceError()) {
       // Intentional error
       try {
-        DataChangeListener listener = new DataChangeListener() {
-          @Override
-          public void handleDataChange(String key, Object data, ChangeType changeType) {};
-        };
+        DataChangeListener listener = (key, data, changeType) -> {};
         metaclient.subscribeDataChange("invalid", listener, false);
+        // Will not reach if error is correctly raised
+        unhandledErrorCounter++;
       } catch (IllegalArgumentException e) {
         System.out.println(Thread.currentThread().getName() + " intentionally set a listener on an invalid path.");
       }
     } else {
-      try {
-        System.out.println(Thread.currentThread().getName() + " is attempting to set a listener on node: " + random);
-        DataChangeListener listener = new DataChangeListener() {
-          @Override
-          public void handleDataChange(String key, Object data, ChangeType changeType) {};
-        };
-        metaclient.subscribeDataChange("/test/" + random, listener, false);
         System.out.println(
-            Thread.currentThread().getName() + " successfully set listener on node " + random + " at time: "
-                + System.currentTimeMillis());
-      } catch (MetaClientNoNodeException e) {
-        System.out.println(Thread.currentThread().getName() + " failed to set listener on " + random + ", it does not exist");
+            Thread.currentThread().getName() + " is attempting to set a listener on node: " + random);
+        DataChangeListener listener = (key, data, changeType) -> {};
+        if (metaclient.subscribeDataChange("/test/" + random, listener, false)) {
+          System.out.println(
+              Thread.currentThread().getName() + " successfully set listener on node " + random + " at time: "
+                  + System.currentTimeMillis());
+        } else {
+          System.out.println(
+              Thread.currentThread().getName() + " failed to set listener on " + random + ", it does not exist");
       }
     }
   }

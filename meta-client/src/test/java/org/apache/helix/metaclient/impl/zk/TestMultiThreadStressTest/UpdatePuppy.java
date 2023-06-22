@@ -37,28 +37,18 @@ public class UpdatePuppy extends AbstractPuppy {
     if (shouldIntroduceError()) {
       // Intentional error
       try {
-        metaclient.update("invalid", new DataUpdater<String>() {
-          @Override
-          public String update(String currentData) {
-            return "test";
-          }
-        });
+        metaclient.update("invalid", (data) -> {return "foo";});
       } catch (IllegalArgumentException e) {
         System.out.println(Thread.currentThread().getName() + " intentionally tried to update an invalid path.");
       }
     } else {
       try {
         System.out.println(Thread.currentThread().getName() + " is attempting to udpate node: " + random);
-        metaclient.update("/test/" + random, new DataUpdater<String>() {
-              @Override
-              public String update(String currentData) {
-                return "test";
-              }
-            });
+        metaclient.update("/test/" + random, (data) -> {return "foo";});
+        eventChangeCounter++;
             System.out.println(
                 Thread.currentThread().getName() + " successfully updated node " + random + " at time: "
                     + System.currentTimeMillis());
-        eventChangeCounter++;
       } catch (MetaClientNoNodeException e) {
         System.out.println(Thread.currentThread().getName() + " failed to update node " + random + ", it does not exist");
       } catch (IllegalArgumentException e) {

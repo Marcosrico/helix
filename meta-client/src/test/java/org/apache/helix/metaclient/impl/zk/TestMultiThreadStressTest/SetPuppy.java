@@ -44,10 +44,10 @@ public class SetPuppy extends AbstractPuppy {
       try {
         System.out.println(Thread.currentThread().getName() + " is attempting to set node: " + random);
         metaclient.set("/test/" + random, "test", -1);
+        eventChangeCounter++;
         System.out.println(
             Thread.currentThread().getName() + " successfully set node " + random + " at time: "
                 + System.currentTimeMillis());
-        eventChangeCounter++;
       } catch (MetaClientNoNodeException e) {
         System.out.println(Thread.currentThread().getName() + " failed to set node " + random + ", it does not exist");
       }

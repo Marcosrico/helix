@@ -54,7 +54,6 @@ public class DirectChildListenerPuppy extends AbstractPuppy {
         DirectChildChangeListener listener = new DirectChildChangeListener() {
           @Override
           public void handleDirectChildChange(String key) throws Exception {
-            eventChangeCounter++;
             ;
           }
         };
