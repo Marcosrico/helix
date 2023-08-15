@@ -22,6 +22,7 @@ package org.apache.helix.metaclient.puppy;
 import org.apache.helix.metaclient.api.MetaClientInterface;
 import java.util.HashMap;
 
+
 /**
  * AbstractPuppy object contains interfaces to implement puppy and main logics to manage puppy life cycle
  */
@@ -31,7 +32,6 @@ public abstract class AbstractPuppy implements Runnable {
   protected PuppySpec _puppySpec;
   public final HashMap<String, Integer> _eventChangeCounterMap;
   public int _unhandledErrorCounter;
-
 
   public AbstractPuppy(MetaClientInterface<String> metaclient, PuppySpec puppySpec) {
     _metaclient = metaclient;
@@ -55,29 +55,22 @@ public abstract class AbstractPuppy implements Runnable {
   @Override
   public void run() {
     try {
-      while (true) {
+      while (!Thread.currentThread().isInterrupted()) {
         try {
+          Thread.sleep(getPuppySpec().getExecDelay().getNextDelay());
           bark();
+        } catch (InterruptedException e) {
+          break;
         } catch (Exception e) {
           incrementUnhandledErrorCounter();
           e.printStackTrace();
         }
-
-        if (getPuppySpec().getMode() == PuppyMode.ONE_OFF) {
-          cleanup();
-          break;
-        } else {
-          try {
-            Thread.sleep(getPuppySpec().getExecDelay().getNextDelay());
-          } catch (InterruptedException e) {
-            cleanup();
-            break;
-            // Handle interruption if necessary
-          }
-        }
       }
     } catch (Exception e) {
       e.printStackTrace();
+    }
+    finally {
+      cleanup();
     }
   }
 
