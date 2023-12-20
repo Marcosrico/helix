@@ -32,9 +32,6 @@ public class LockClientTest extends ZkMetaClientTestBase {
   private static final String CLIENT_ID = "test_client_id";
   private static final String CLIENT_DATA = "client_data";
   private static final String LOCK_ID = "794c8a4c-c14b-4c23-b83f-4e1147fc6978";
-  private static final long GRANT_TIME = System.currentTimeMillis();
-  private static final long LAST_RENEWAL_TIME = System.currentTimeMillis();
-  private static final long TIMEOUT = 100000;
 
   public LockClient createLockClient() {
 
@@ -50,9 +47,6 @@ public class LockClientTest extends ZkMetaClientTestBase {
     lockInfo.setClientId(CLIENT_ID);
     lockInfo.setClientData(CLIENT_DATA);
     lockInfo.setLockId(LOCK_ID);
-    lockInfo.setGrantedAt(GRANT_TIME);
-    lockInfo.setLastRenewedAt(LAST_RENEWAL_TIME);
-    lockInfo.setTimeout(TIMEOUT);
     return lockInfo;
   }
 
@@ -63,6 +57,11 @@ public class LockClientTest extends ZkMetaClientTestBase {
     LockInfo lockInfo = createLockInfo();
     lockClient.acquireLock(key, lockInfo, MetaClientInterface.EntryMode.PERSISTENT);
     Assert.assertNotNull(lockClient.retrieveLock(key));
+    Assert.assertEquals(lockClient.retrieveLock(key).getOwnerId(), OWNER_ID);
+    Assert.assertEquals(lockClient.retrieveLock(key).getClientId(), CLIENT_ID);
+    Assert.assertEquals(lockClient.retrieveLock(key).getClientData(), CLIENT_DATA);
+    Assert.assertEquals(lockClient.retrieveLock(key).getLockId(), LOCK_ID);
+    Assert.assertEquals(lockClient.retrieveLock(key).getTimeout(), -1);
     try {
       lockClient.acquireLock(TEST_INVALID_PATH, new LockInfo(), MetaClientInterface.EntryMode.PERSISTENT);
       Assert.fail("Should not be able to acquire lock for key: " + key);
@@ -110,7 +109,7 @@ public class LockClientTest extends ZkMetaClientTestBase {
     Assert.assertEquals(lockClient.retrieveLock(key).getClientId(), CLIENT_ID);
     Assert.assertEquals(lockClient.retrieveLock(key).getClientData(), CLIENT_DATA);
     Assert.assertEquals(lockClient.retrieveLock(key).getLockId(), LOCK_ID);
-    Assert.assertEquals(lockClient.retrieveLock(key).getTimeout(), TIMEOUT);
+    Assert.assertEquals(lockClient.retrieveLock(key).getTimeout(), -1);
     Assert.assertNull(lockClient.retrieveLock(TEST_INVALID_PATH));
   }
 

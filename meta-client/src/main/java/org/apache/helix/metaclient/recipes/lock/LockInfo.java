@@ -100,14 +100,12 @@ public class LockInfo extends DataRecord {
    * @param ownerId value of OWNER_ID attribute
    * @param clientId value of CLIENT_ID attribute
    * @param clientData value of CLIENT_DATA attribute
-   * @param grantTime the time the lock was granted
-   * @param lastRenewalTime the last time the lock was renewed
-   * @param timeout value of TIMEOUT attribute
    */
   public LockInfo(String lockId, String ownerId, String clientId,
-                  String clientData, long grantTime, long lastRenewalTime, long timeout) {
+                  String clientData) {
     this();
-    setLockInfoFields(lockId, ownerId, clientId, clientData, grantTime, lastRenewalTime, timeout);
+    setLockInfoFields(lockId, ownerId, clientId, clientData, DEFAULT_GRANTED_AT_LONG,
+        DEFAULT_LAST_RENEWED_AT_LONG, DEFAULT_TIMEOUT_DURATION);
   }
 
   /**
@@ -171,7 +169,7 @@ public class LockInfo extends DataRecord {
    * Get the value for GRANTED_AT attribute of the lock
    * @param grantTime Long representing the time at which the lock was granted
    */
-  public void setGrantedAt(Long grantTime) {
+  private void setGrantedAt(Long grantTime) {
     setLongField(LockInfoAttribute.GRANTED_AT.name(), grantTime);
   }
 
@@ -179,7 +177,7 @@ public class LockInfo extends DataRecord {
    * Get the value for LAST_RENEWED_AT attribute of the lock
    * @param lastRenewalTime Long representing the time at which the lock was last renewed
    */
-  public void setLastRenewedAt(Long lastRenewalTime) {
+  private void setLastRenewedAt(Long lastRenewalTime) {
     setLongField(LockInfoAttribute.LAST_RENEWED_AT.name(), lastRenewalTime);
   }
 
@@ -187,7 +185,7 @@ public class LockInfo extends DataRecord {
    * Get the value for TIMEOUT attribute of the lock
    * @param timeout Long representing the duration of a lock in milliseconds.
    */
-  public void setTimeout(long timeout) {
+  private void setTimeout(long timeout) {
     // Always store the timeout value in milliseconds for the sake of simplicity
     setLongField(LockInfoAttribute.TIMEOUT.name(), timeout);
   }
