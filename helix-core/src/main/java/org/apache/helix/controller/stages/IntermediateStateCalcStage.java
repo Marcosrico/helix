@@ -368,7 +368,10 @@ public class IntermediateStateCalcStage extends AbstractBaseStage {
               .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
       List<String> preferenceList = preferenceLists.get(partition.getPartitionName());
       Map<String, Integer> requiredState = getRequiredStates(resourceName, cache, preferenceList);
-      messagesToThrottle.sort(new MessagePriorityComparator(preferenceList, stateModelDef.getStatePriorityMap()));
+      if (preferenceList != null && !preferenceList.isEmpty()) {
+        // Sort messages based on the priority (priority is defined in the state model definition
+        messagesToThrottle.sort(new MessagePriorityComparator(preferenceList, stateModelDef.getStatePriorityMap()));
+      }
       for (Message message : messagesToThrottle) {
         RebalanceType rebalanceType =
             getRebalanceTypePerMessage(requiredState, message, derivedCurrentStateMap);
@@ -475,8 +478,11 @@ public class IntermediateStateCalcStage extends AbstractBaseStage {
       // Maps instance to its pending (next) state
       List<Message> pendingMessages = new ArrayList<>(
           currentStateOutput.getPendingMessageMap(resourceName, partition).values());
-      pendingMessages.sort(new MessagePriorityComparator(preferenceLists.get(partition.getPartitionName()),
-          stateModelDefinition.getStatePriorityMap()));
+      List<String> preferenceList = preferenceLists.get(partition.getPartitionName());
+      if (preferenceList != null && !preferenceList.isEmpty()) {
+        pendingMessages.sort(new MessagePriorityComparator(preferenceList,
+            stateModelDefinition.getStatePriorityMap()));
+      }
 
       for (Message message : pendingMessages) {
         StateTransitionThrottleConfig.RebalanceType rebalanceType =
@@ -545,6 +551,10 @@ public class IntermediateStateCalcStage extends AbstractBaseStage {
       messagesThrottled.add(messageToThrottle.getId());
       return;
     }
+    // TODO: Currently throttling is applied for messages that are targeting all instances including those not considered as
+    //  assignable. They all share the same configured limits. After discussion, there was agreement that this is the proper
+    //  behavior. In addition to this, we should consider adding priority based on whether the instance is assignable and whether
+    //  the message is bringing replica count to configured replicas or above configured replicas.
     throttleStateTransitionsForReplica(throttleController, resource.getResourceName(), partition,
         messageToThrottle, messagesThrottled, RebalanceType.LOAD_BALANCE, cache,
         resourceMessageMap);
@@ -643,15 +653,20 @@ public class IntermediateStateCalcStage extends AbstractBaseStage {
     StateModelDefinition stateModelDefinition =
         resourceControllerDataProvider.getStateModelDef(idealState.getStateModelDefRef());
     int requiredNumReplica =
-        idealState.getMinActiveReplicas() == -1 ? idealState.getReplicaCount(preferenceList.size())
+        idealState.getMinActiveReplicas() == -1 ?
+            idealState.getReplicaCount(preferenceList == null ? 0 : preferenceList.size())
             : idealState.getMinActiveReplicas();
 
     // Generate a state mapping, state -> required numbers based on the live and enabled instances for this partition
     // preference list
+    if (preferenceList != null) {
+      return stateModelDefinition.getStateCountMap((int) preferenceList.stream().filter(
+              i -> resourceControllerDataProvider.getAssignableEnabledLiveInstances().contains(i))
+          .count(), requiredNumReplica); // StateModelDefinition's counts
+    }
     return stateModelDefinition.getStateCountMap(
-        (int) preferenceList.stream()
-            .filter(i -> resourceControllerDataProvider.getEnabledLiveInstances().contains(i))
-            .count(), requiredNumReplica); // StateModelDefinition's counts
+        resourceControllerDataProvider.getAssignableEnabledLiveInstances().size(),
+        requiredNumReplica); // StateModelDefinition's counts
   }
 
   /**

@@ -82,9 +82,9 @@ public class MultiRoundCrushRebalanceStrategy implements RebalanceStrategy<Resou
   public ZNRecord computePartitionAssignment(final List<String> allNodes,
       final List<String> liveNodes, final Map<String, Map<String, String>> currentMapping,
       ResourceControllerDataProvider clusterData) throws HelixException {
-    Map<String, InstanceConfig> instanceConfigMap = clusterData.getInstanceConfigMap();
+    Map<String, InstanceConfig> instanceConfigMap = clusterData.getAssignableInstanceConfigMap();
     _clusterTopo =
-        new Topology(allNodes, liveNodes, instanceConfigMap, clusterData.getClusterConfig());
+        new Topology(allNodes, liveNodes, instanceConfigMap, clusterData.getClusterConfig(), true);
     Node root = _clusterTopo.getRootNode();
 
     Map<String, List<Node>> zoneMapping = new HashMap<>();

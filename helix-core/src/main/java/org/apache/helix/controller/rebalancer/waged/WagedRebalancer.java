@@ -19,6 +19,7 @@ package org.apache.helix.controller.rebalancer.waged;
  * under the License.
  */
 
+import com.google.common.collect.ImmutableList;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -47,7 +48,6 @@ import org.apache.helix.controller.rebalancer.waged.model.ClusterModelProvider;
 import org.apache.helix.controller.stages.CurrentStateOutput;
 import org.apache.helix.model.ClusterConfig;
 import org.apache.helix.model.IdealState;
-import org.apache.helix.model.InstanceConfig;
 import org.apache.helix.model.Partition;
 import org.apache.helix.model.Resource;
 import org.apache.helix.model.ResourceAssignment;
@@ -80,7 +80,7 @@ public class WagedRebalancer implements StatefulRebalancer<ResourceControllerDat
           .getInstance(ClusterConfig.DEFAULT_GLOBAL_REBALANCE_PREFERENCE);
   // These failure types should be propagated to caller of computeNewIdealStates()
   private static final List<HelixRebalanceException.Type> FAILURE_TYPES_TO_PROPAGATE =
-      List.of(HelixRebalanceException.Type.INVALID_REBALANCER_STATUS, HelixRebalanceException.Type.UNKNOWN_FAILURE);
+      ImmutableList.of(HelixRebalanceException.Type.INVALID_REBALANCER_STATUS, HelixRebalanceException.Type.UNKNOWN_FAILURE);
 
   private final HelixManager _manager;
   private final MappingCalculator<ResourceControllerDataProvider> _mappingCalculator;
@@ -301,10 +301,13 @@ public class WagedRebalancer implements StatefulRebalancer<ResourceControllerDat
       ResourceControllerDataProvider clusterData, Map<String, Resource> resourceMap,
       final CurrentStateOutput currentStateOutput, RebalanceAlgorithm algorithm)
       throws HelixRebalanceException {
-    Set<String> activeNodes = DelayedRebalanceUtil
-        .getActiveNodes(clusterData.getAllInstances(), clusterData.getEnabledLiveInstances(),
-            clusterData.getInstanceOfflineTimeMap(), clusterData.getLiveInstances().keySet(),
-            clusterData.getInstanceConfigMap(), clusterData.getClusterConfig());
+
+    Set<String> activeNodes =
+        DelayedRebalanceUtil.getActiveNodes(clusterData.getAssignableInstances(),
+            clusterData.getAssignableEnabledLiveInstances(),
+            clusterData.getInstanceOfflineTimeMap(),
+            clusterData.getAssignableLiveInstances().keySet(),
+            clusterData.getAssignableInstanceConfigMap(), clusterData.getClusterConfig());
 
     // Schedule (or unschedule) delayed rebalance according to the delayed rebalance config.
     delayedRebalanceSchedule(clusterData, activeNodes, resourceMap.keySet());
@@ -358,6 +361,7 @@ public class WagedRebalancer implements StatefulRebalancer<ResourceControllerDat
         // Sort the preference list according to state priority.
         newIdealState.setPreferenceLists(
             getPreferenceLists(assignments.get(resourceName), statePriorityMap));
+
         // Note the state mapping in the new assignment won't directly propagate to the map fields.
         // The rebalancer will calculate for the final state mapping considering the current states.
         finalIdealStateMap.put(resourceName, newIdealState);
@@ -395,9 +399,13 @@ public class WagedRebalancer implements StatefulRebalancer<ResourceControllerDat
       Set<String> activeNodes,
       Map<String, ResourceAssignment> currentResourceAssignment,
       RebalanceAlgorithm algorithm) throws HelixRebalanceException {
+
     // the "real" live nodes at the time
-    // TODO: this is a hacky way to filter our on operation instance. We should consider redesign `getEnabledLiveInstances()`.
-    final Set<String> enabledLiveInstances = filterOutOnOperationInstances(clusterData.getInstanceConfigMap(), clusterData.getEnabledLiveInstances());
+    // TODO: Move evacuation into BaseControllerDataProvider assignableNode logic.
+    final Set<String> enabledLiveInstances = DelayedRebalanceUtil.filterOutEvacuatingInstances(
+        clusterData.getAssignableInstanceConfigMap(),
+        clusterData.getAssignableEnabledLiveInstances());
+
     if (activeNodes.equals(enabledLiveInstances) || !requireRebalanceOverwrite(clusterData, currentResourceAssignment)) {
       // no need for additional process, return the current resource assignment
       return currentResourceAssignment;
@@ -424,14 +432,6 @@ public class WagedRebalancer implements StatefulRebalancer<ResourceControllerDat
     } finally {
       _rebalanceOverwriteLatency.endMeasuringLatency();
     }
-  }
-
-  private static Set<String> filterOutOnOperationInstances(Map<String, InstanceConfig> instanceConfigMap,
-      Set<String> nodes) {
-    return nodes.stream()
-        .filter(
-            instance -> !DelayedAutoRebalancer.INSTANCE_OPERATION_TO_EXCLUDE_FROM_ASSIGNMENT.contains(instanceConfigMap.get(instance).getInstanceOperation()))
-        .collect(Collectors.toSet());
   }
 
   /**
@@ -599,12 +599,13 @@ public class WagedRebalancer implements StatefulRebalancer<ResourceControllerDat
       ClusterConfig clusterConfig = clusterData.getClusterConfig();
       boolean delayedRebalanceEnabled = DelayedRebalanceUtil.isDelayRebalanceEnabled(clusterConfig);
       Set<String> offlineOrDisabledInstances = new HashSet<>(delayedActiveNodes);
-      offlineOrDisabledInstances.removeAll(clusterData.getEnabledLiveInstances());
+      offlineOrDisabledInstances.removeAll(clusterData.getAssignableEnabledLiveInstances());
       for (String resource : resourceSet) {
         DelayedRebalanceUtil
             .setRebalanceScheduler(resource, delayedRebalanceEnabled, offlineOrDisabledInstances,
-                clusterData.getInstanceOfflineTimeMap(), clusterData.getLiveInstances().keySet(),
-                clusterData.getInstanceConfigMap(), clusterConfig.getRebalanceDelayTime(),
+                clusterData.getInstanceOfflineTimeMap(),
+                clusterData.getAssignableLiveInstances().keySet(),
+                clusterData.getAssignableInstanceConfigMap(), clusterConfig.getRebalanceDelayTime(),
                 clusterConfig, _manager);
       }
     } else {
@@ -618,8 +619,12 @@ public class WagedRebalancer implements StatefulRebalancer<ResourceControllerDat
     bestPossibleAssignment.values().parallelStream().forEach((resourceAssignment -> {
       String resourceName = resourceAssignment.getResourceName();
       IdealState currentIdealState = clusterData.getIdealState(resourceName);
-      Set<String> enabledLiveInstances =
-          filterOutOnOperationInstances(clusterData.getInstanceConfigMap(), clusterData.getEnabledLiveInstances());
+
+      // TODO: Move evacuation into BaseControllerDataProvider assignableNode logic.
+      Set<String> enabledLiveInstances = DelayedRebalanceUtil.filterOutEvacuatingInstances(
+          clusterData.getAssignableInstanceConfigMap(),
+          clusterData.getAssignableEnabledLiveInstances());
+
       int numReplica = currentIdealState.getReplicaCount(enabledLiveInstances.size());
       int minActiveReplica = DelayedRebalanceUtil.getMinActiveReplica(ResourceConfig
           .mergeIdealStateWithResourceConfig(clusterData.getResourceConfig(resourceName),

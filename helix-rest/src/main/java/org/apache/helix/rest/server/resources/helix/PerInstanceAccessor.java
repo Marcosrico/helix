@@ -164,6 +164,7 @@ public class PerInstanceAccessor extends AbstractHelixResource {
    * @param continueOnFailures whether or not continue to perform the subsequent checks if previous
    *                           check fails. If false, when helix own check fails, the subsequent
    *                           custom checks will not be performed.
+   * @param skipHealthCheckCategories StoppableCheck Categories to skip.
    * @return json response representing if queried instance is stoppable
    * @throws IOException if there is any IO/network error
    */
@@ -172,16 +173,32 @@ public class PerInstanceAccessor extends AbstractHelixResource {
   @POST
   @Path("stoppable")
   @Consumes(MediaType.APPLICATION_JSON)
-  public Response isInstanceStoppable(
-      String jsonContent,
-      @PathParam("clusterId") String clusterId,
-      @PathParam("instanceName") String instanceName,
-      @QueryParam("skipZKRead") boolean skipZKRead,
-      @QueryParam("continueOnFailures") boolean continueOnFailures) throws IOException {
+  public Response isInstanceStoppable(String jsonContent, @PathParam("clusterId") String clusterId,
+      @PathParam("instanceName") String instanceName, @QueryParam("skipZKRead") boolean skipZKRead,
+      @QueryParam("continueOnFailures") boolean continueOnFailures,
+      @QueryParam("skipHealthCheckCategories") String skipHealthCheckCategories)
+      throws IOException {
+
+    Set<StoppableCheck.Category> skipHealthCheckCategorySet;
+    try {
+      skipHealthCheckCategorySet = skipHealthCheckCategories != null
+          ? StoppableCheck.Category.categorySetFromCommaSeperatedString(skipHealthCheckCategories)
+          : Collections.emptySet();
+      if (!MaintenanceManagementService.SKIPPABLE_HEALTH_CHECK_CATEGORIES.containsAll(
+          skipHealthCheckCategorySet)) {
+        throw new IllegalArgumentException(
+            "Some of the provided skipHealthCheckCategories are not skippable. The supported skippable categories are: "
+                + MaintenanceManagementService.SKIPPABLE_HEALTH_CHECK_CATEGORIES);
+      }
+    } catch (Exception e) {
+      return badRequest("Invalid skipHealthCheckCategories: " + skipHealthCheckCategories + "\n"
+          + e.getMessage());
+    }
+
     HelixDataAccessor dataAccessor = getDataAccssor(clusterId);
     MaintenanceManagementService maintenanceService =
-        new MaintenanceManagementService((ZKHelixDataAccessor) dataAccessor, getConfigAccessor(), skipZKRead,
-            continueOnFailures, getNamespace());
+        new MaintenanceManagementService((ZKHelixDataAccessor) dataAccessor, getConfigAccessor(),
+            skipZKRead, continueOnFailures, skipHealthCheckCategorySet, getNamespace());
     StoppableCheck stoppableCheck;
     try {
       JsonNode node = null;
@@ -410,52 +427,69 @@ public class PerInstanceAccessor extends AbstractHelixResource {
           }
           admin.resetPartition(clusterId, instanceName,
               node.get(PerInstanceProperties.resource.name()).textValue(),
-              (List<String>) OBJECT_MAPPER
-                  .readValue(node.get(PerInstanceProperties.partitions.name()).toString(),
-                    OBJECT_MAPPER.getTypeFactory()
-                        .constructCollectionType(List.class, String.class)));
-        break;
-      case setInstanceOperation:
-         admin.setInstanceOperation(clusterId, instanceName, state);
-         break;
-      case addInstanceTag:
-        if (!validInstance(node, instanceName)) {
-          return badRequest("Instance names are not match!");
-        }
-        for (String tag : (List<String>) OBJECT_MAPPER
-            .readValue(node.get(PerInstanceProperties.instanceTags.name()).toString(),
-                OBJECT_MAPPER.getTypeFactory().constructCollectionType(List.class, String.class))) {
-          admin.addInstanceTag(clusterId, instanceName, tag);
-        }
-        break;
-      case removeInstanceTag:
-        if (!validInstance(node, instanceName)) {
-          return badRequest("Instance names are not match!");
-        }
-        for (String tag : (List<String>) OBJECT_MAPPER
-            .readValue(node.get(PerInstanceProperties.instanceTags.name()).toString(),
-                OBJECT_MAPPER.getTypeFactory().constructCollectionType(List.class, String.class))) {
-          admin.removeInstanceTag(clusterId, instanceName, tag);
-        }
-        break;
-      case enablePartitions:
-        admin.enablePartition(true, clusterId, instanceName,
-            node.get(PerInstanceProperties.resource.name()).textValue(),
-            (List<String>) OBJECT_MAPPER
-                .readValue(node.get(PerInstanceProperties.partitions.name()).toString(),
-                    OBJECT_MAPPER.getTypeFactory()
-                        .constructCollectionType(List.class, String.class)));
-        break;
-      case disablePartitions:
-        admin.enablePartition(false, clusterId, instanceName,
-            node.get(PerInstanceProperties.resource.name()).textValue(),
-            (List<String>) OBJECT_MAPPER
-                .readValue(node.get(PerInstanceProperties.partitions.name()).toString(),
-                    OBJECT_MAPPER.getTypeFactory().constructCollectionType(List.class, String.class)));
-        break;
-      default:
-        LOG.error("Unsupported command :" + command);
-        return badRequest("Unsupported command :" + command);
+              (List<String>) OBJECT_MAPPER.readValue(
+                  node.get(PerInstanceProperties.partitions.name()).toString(),
+                  OBJECT_MAPPER.getTypeFactory()
+                      .constructCollectionType(List.class, String.class)));
+          break;
+        case setInstanceOperation:
+          admin.setInstanceOperation(clusterId, instanceName, state);
+          break;
+        case canCompleteSwap:
+          return OK(OBJECT_MAPPER.writeValueAsString(
+              Map.of("successful", admin.canCompleteSwap(clusterId, instanceName))));
+        case completeSwapIfPossible:
+          return OK(OBJECT_MAPPER.writeValueAsString(
+              Map.of("successful", admin.completeSwapIfPossible(clusterId, instanceName))));
+        case addInstanceTag:
+          if (!validInstance(node, instanceName)) {
+            return badRequest("Instance names are not match!");
+          }
+          for (String tag : (List<String>) OBJECT_MAPPER.readValue(
+              node.get(PerInstanceProperties.instanceTags.name()).toString(),
+              OBJECT_MAPPER.getTypeFactory().constructCollectionType(List.class, String.class))) {
+            admin.addInstanceTag(clusterId, instanceName, tag);
+          }
+          break;
+        case removeInstanceTag:
+          if (!validInstance(node, instanceName)) {
+            return badRequest("Instance names are not match!");
+          }
+          for (String tag : (List<String>) OBJECT_MAPPER.readValue(
+              node.get(PerInstanceProperties.instanceTags.name()).toString(),
+              OBJECT_MAPPER.getTypeFactory().constructCollectionType(List.class, String.class))) {
+            admin.removeInstanceTag(clusterId, instanceName, tag);
+          }
+          break;
+        case enablePartitions:
+          admin.enablePartition(true, clusterId, instanceName,
+              node.get(PerInstanceProperties.resource.name()).textValue(),
+              (List<String>) OBJECT_MAPPER.readValue(
+                  node.get(PerInstanceProperties.partitions.name()).toString(),
+                  OBJECT_MAPPER.getTypeFactory()
+                      .constructCollectionType(List.class, String.class)));
+          break;
+        case disablePartitions:
+          admin.enablePartition(false, clusterId, instanceName,
+              node.get(PerInstanceProperties.resource.name()).textValue(),
+              (List<String>) OBJECT_MAPPER.readValue(
+                  node.get(PerInstanceProperties.partitions.name()).toString(),
+                  OBJECT_MAPPER.getTypeFactory()
+                      .constructCollectionType(List.class, String.class)));
+          break;
+        case isEvacuateFinished:
+          boolean evacuateFinished;
+          try {
+            evacuateFinished = admin.isEvacuateFinished(clusterId, instanceName);
+          } catch (HelixException e) {
+            LOG.error(String.format("Encountered error when checking if evacuation finished for cluster: "
+                + "{}, instance: {}", clusterId, instanceName), e);
+            return serverError(e);
+          }
+          return OK(OBJECT_MAPPER.writeValueAsString(Map.of("successful", evacuateFinished)));
+        default:
+          LOG.error("Unsupported command :" + command);
+          return badRequest("Unsupported command :" + command);
       }
     } catch (Exception e) {
       LOG.error("Failed in updating instance : " + instanceName, e);

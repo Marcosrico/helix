@@ -20,7 +20,9 @@ package org.apache.helix.controller.rebalancer.waged;
  */
 
 import com.google.common.collect.ImmutableMap;
+
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -106,16 +108,21 @@ public class TestWagedRebalancer extends AbstractTestClusterModel {
       _instances.add(instanceName);
       // 1. Set up the default instance information with capacity configuration.
       InstanceConfig testInstanceConfig = createMockInstanceConfig(instanceName);
-      Map<String, InstanceConfig> instanceConfigMap = testCache.getInstanceConfigMap();
+      Map<String, InstanceConfig> instanceConfigMap = testCache.getAssignableInstanceConfigMap();
       instanceConfigMap.put(instanceName, testInstanceConfig);
+      when(testCache.getAssignableInstanceConfigMap()).thenReturn(instanceConfigMap);
       when(testCache.getInstanceConfigMap()).thenReturn(instanceConfigMap);
       // 2. Mock the live instance node for the default instance.
       LiveInstance testLiveInstance = createMockLiveInstance(instanceName);
-      Map<String, LiveInstance> liveInstanceMap = testCache.getLiveInstances();
+      Map<String, LiveInstance> liveInstanceMap = testCache.getAssignableLiveInstances();
       liveInstanceMap.put(instanceName, testLiveInstance);
+      when(testCache.getAssignableLiveInstances()).thenReturn(liveInstanceMap);
       when(testCache.getLiveInstances()).thenReturn(liveInstanceMap);
+      when(testCache.getAssignableEnabledInstances()).thenReturn(liveInstanceMap.keySet());
       when(testCache.getEnabledInstances()).thenReturn(liveInstanceMap.keySet());
+      when(testCache.getAssignableEnabledLiveInstances()).thenReturn(liveInstanceMap.keySet());
       when(testCache.getEnabledLiveInstances()).thenReturn(liveInstanceMap.keySet());
+      when(testCache.getAssignableInstances()).thenReturn(_instances);
       when(testCache.getAllInstances()).thenReturn(_instances);
     }
 
@@ -368,7 +375,7 @@ public class TestWagedRebalancer extends AbstractTestClusterModel {
         Collectors.toMap(resourceName -> resourceName, Resource::new));
     try {
       rebalancer.computeBestPossibleAssignment(clusterData, resourceMap,
-          clusterData.getEnabledLiveInstances(), new CurrentStateOutput(), _algorithm);
+          clusterData.getAssignableEnabledLiveInstances(), new CurrentStateOutput(), _algorithm);
       Assert.fail("Rebalance shall fail.");
     } catch (HelixRebalanceException ex) {
       Assert.assertEquals(ex.getFailureType(), HelixRebalanceException.Type.FAILED_TO_CALCULATE);
@@ -432,7 +439,7 @@ public class TestWagedRebalancer extends AbstractTestClusterModel {
     // Calculation will fail
     try {
       rebalancer.computeBestPossibleAssignment(clusterData, resourceMap,
-          clusterData.getEnabledLiveInstances(), new CurrentStateOutput(), badAlgorithm);
+          clusterData.getAssignableEnabledLiveInstances(), new CurrentStateOutput(), badAlgorithm);
       Assert.fail("Rebalance shall fail.");
     } catch (HelixRebalanceException ex) {
       Assert.assertEquals(ex.getFailureType(), HelixRebalanceException.Type.FAILED_TO_CALCULATE);
@@ -599,6 +606,11 @@ public class TestWagedRebalancer extends AbstractTestClusterModel {
     String offlinePartition = _partitionNames.get(0);
     String offlineState = "MASTER";
     String offlineInstance = "offlineInstance";
+    InstanceConfig offlineInstanceConfig = createMockInstanceConfig(offlineInstance);
+    Map<String, InstanceConfig> instanceConfigMap = clusterData.getAssignableInstanceConfigMap();
+    instanceConfigMap.put(offlineInstance, offlineInstanceConfig);
+    when(clusterData.getAssignableInstanceConfigMap()).thenReturn(instanceConfigMap);
+    when(clusterData.getInstanceConfigMap()).thenReturn(instanceConfigMap);
     for (Partition partition : bestPossibleAssignment.get(offlineResource).getMappedPartitions()) {
       if (partition.getPartitionName().equals(offlinePartition)) {
         bestPossibleAssignment.get(offlineResource)
@@ -647,12 +659,13 @@ public class TestWagedRebalancer extends AbstractTestClusterModel {
     Set<String> instances = new HashSet<>(_instances);
     String offlineInstance = "offlineInstance";
     instances.add(offlineInstance);
-    when(clusterData.getAllInstances()).thenReturn(instances);
+    when(clusterData.getAssignableInstances()).thenReturn(instances);
     Map<String, Long> instanceOfflineTimeMap = new HashMap<>();
     instanceOfflineTimeMap.put(offlineInstance, System.currentTimeMillis() + Integer.MAX_VALUE);
     when(clusterData.getInstanceOfflineTimeMap()).thenReturn(instanceOfflineTimeMap);
-    Map<String, InstanceConfig> instanceConfigMap = clusterData.getInstanceConfigMap();
+    Map<String, InstanceConfig> instanceConfigMap = clusterData.getAssignableInstanceConfigMap();
     instanceConfigMap.put(offlineInstance, createMockInstanceConfig(offlineInstance));
+    when(clusterData.getAssignableInstanceConfigMap()).thenReturn(instanceConfigMap);
     when(clusterData.getInstanceConfigMap()).thenReturn(instanceConfigMap);
 
     // Set minActiveReplica to 0 so that requireRebalanceOverwrite returns false
@@ -735,14 +748,16 @@ public class TestWagedRebalancer extends AbstractTestClusterModel {
     // force create a fake offlineInstance that's in delay window
     Set<String> instances = new HashSet<>(_instances);
     instances.add(offlineInstance);
-    when(clusterData.getAllInstances()).thenReturn(instances);
-    when(clusterData.getEnabledInstances()).thenReturn(instances);
-    when(clusterData.getEnabledLiveInstances()).thenReturn(Set.of(instance0, instance1, instance2));
+    when(clusterData.getAssignableInstances()).thenReturn(instances);
+    when(clusterData.getAssignableEnabledInstances()).thenReturn(instances);
+    when(clusterData.getAssignableEnabledLiveInstances()).thenReturn(
+        new HashSet<>(Arrays.asList(instance0, instance1, instance2)));
     Map<String, Long> instanceOfflineTimeMap = new HashMap<>();
     instanceOfflineTimeMap.put(offlineInstance, System.currentTimeMillis() + Integer.MAX_VALUE);
     when(clusterData.getInstanceOfflineTimeMap()).thenReturn(instanceOfflineTimeMap);
-    Map<String, InstanceConfig> instanceConfigMap = clusterData.getInstanceConfigMap();
+    Map<String, InstanceConfig> instanceConfigMap = clusterData.getAssignableInstanceConfigMap();
     instanceConfigMap.put(offlineInstance, createMockInstanceConfig(offlineInstance));
+    when(clusterData.getAssignableInstanceConfigMap()).thenReturn(instanceConfigMap);
     when(clusterData.getInstanceConfigMap()).thenReturn(instanceConfigMap);
 
     Map<String, IdealState> isMap = new HashMap<>();
@@ -862,10 +877,10 @@ public class TestWagedRebalancer extends AbstractTestClusterModel {
   public void testResourceWeightProvider() throws IOException {
     ResourceControllerDataProvider testCache = setupClusterDataCache();
     WagedResourceWeightsProvider dataProvider = new WagedResourceWeightsProvider(testCache);
-    Map<String, Integer> weights1 = Map.of("item1", 3, "item2", 6, "item3", 0);
+    Map<String, Integer> weights1 = ImmutableMap.of("item1", 3, "item2", 6, "item3", 0);
     Assert.assertEquals(dataProvider.getPartitionWeights("Resource1", "Partition1"), weights1);
     Assert.assertEquals(dataProvider.getPartitionWeights("Resource1", "Partition2"), weights1);
-    Map<String, Integer> weights2 = Map.of("item1", 5, "item2", 10, "item3", 0);
+    Map<String, Integer> weights2 = ImmutableMap.of("item1", 5, "item2", 10, "item3", 0);
     Assert.assertEquals(dataProvider.getPartitionWeights("Resource2", "Partition2"), weights2);
   }
 
@@ -878,10 +893,11 @@ public class TestWagedRebalancer extends AbstractTestClusterModel {
 
     // force create a fake offlineInstance that's in delay window
     Set<String> instances = new HashSet<>(_instances);
-    when(clusterData.getAllInstances()).thenReturn(instances);
-    when(clusterData.getEnabledInstances()).thenReturn(instances);
-    when(clusterData.getEnabledLiveInstances()).thenReturn(instances);
-    Map<String, InstanceConfig> instanceConfigMap = clusterData.getInstanceConfigMap();
+    when(clusterData.getAssignableInstances()).thenReturn(instances);
+    when(clusterData.getAssignableEnabledInstances()).thenReturn(instances);
+    when(clusterData.getAssignableEnabledLiveInstances()).thenReturn(instances);
+    Map<String, InstanceConfig> instanceConfigMap = clusterData.getAssignableInstanceConfigMap();
+    when(clusterData.getAssignableInstanceConfigMap()).thenReturn(instanceConfigMap);
     when(clusterData.getInstanceConfigMap()).thenReturn(instanceConfigMap);
 
     Map<String, IdealState> isMap = new HashMap<>();
@@ -898,7 +914,7 @@ public class TestWagedRebalancer extends AbstractTestClusterModel {
         }));
     WagedInstanceCapacity provider = new WagedInstanceCapacity(clusterData);
 
-    Map<String, Integer> weights1 = Map.of("item1", 20, "item2", 40, "item3", 30);
+    Map<String, Integer> weights1 = ImmutableMap.of("item1", 20, "item2", 40, "item3", 30);
     Map<String, Integer> capacity = provider.getInstanceAvailableCapacity("testInstanceId");
     Assert.assertEquals(provider.getInstanceAvailableCapacity("testInstanceId"), weights1);
     Assert.assertEquals(provider.getInstanceAvailableCapacity("testInstanceId1"), weights1);

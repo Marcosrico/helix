@@ -100,7 +100,7 @@ class ConstraintBasedAlgorithm implements RebalanceAlgorithm {
           getNodeWithHighestPoints(replica, nodes, clusterModel.getContext(), busyInstances,
               optimalAssignment);
       // stop immediately if any replica cannot find best assignable node
-      if (maybeBestNode.isEmpty() || optimalAssignment.hasAnyFailure()) {
+      if (!maybeBestNode.isPresent() || optimalAssignment.hasAnyFailure()) {
         String errorMessage = String.format(
             "Unable to find any available candidate node for partition %s; Fail reasons: %s",
             replica.getPartitionName(), optimalAssignment.getFailures());
@@ -148,12 +148,12 @@ class ConstraintBasedAlgorithm implements RebalanceAlgorithm {
           if (scoreCompareResult == 0) {
             // If the evaluation scores of 2 nodes are the same, the algorithm assigns the replica
             // to the idle node first.
-            String instanceName1 = nodeEntry1.getKey().getInstanceName();
-            String instanceName2 = nodeEntry2.getKey().getInstanceName();
-            int idleScore1 = busyInstances.contains(instanceName1) ? 0 : 1;
-            int idleScore2 = busyInstances.contains(instanceName2) ? 0 : 1;
+            String logicalId1 = nodeEntry1.getKey().getLogicalId();
+            String logicalId2 = nodeEntry2.getKey().getLogicalId();
+            int idleScore1 = busyInstances.contains(logicalId1) ? 0 : 1;
+            int idleScore2 = busyInstances.contains(logicalId2) ? 0 : 1;
             return idleScore1 != idleScore2 ? (idleScore1 - idleScore2)
-                : -instanceName1.compareTo(instanceName2);
+                : -nodeEntry1.getKey().compareTo(nodeEntry2.getKey());
           } else {
             return scoreCompareResult;
           }
@@ -193,7 +193,7 @@ class ConstraintBasedAlgorithm implements RebalanceAlgorithm {
           .containsKey(replica.getResourceName());
       _isInBaselineAssignment =
           clusterModel.getContext().getBaselineAssignment().containsKey(replica.getResourceName());
-      _replicaHash = Objects.hash(replica.toString(), clusterModel.getAssignableNodes().keySet());
+      _replicaHash = Objects.hash(replica.toString(), clusterModel.getAssignableLogicalIds());
       computeScore(overallClusterRemainingCapacityMap);
     }
 
@@ -271,7 +271,7 @@ class ConstraintBasedAlgorithm implements RebalanceAlgorithm {
 
   /**
    * @param assignments A collection of resource replicas assignment.
-   * @return A set of instance names that have at least one replica assigned in the input assignments.
+   * @return A set of logicalIds that have at least one replica assigned in the input assignments.
    */
   private Set<String> getBusyInstances(Collection<ResourceAssignment> assignments) {
     return assignments.stream().flatMap(

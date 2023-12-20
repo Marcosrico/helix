@@ -86,7 +86,10 @@ public class AbstractResource {
     getInstance,
     getAllInstances,
     setInstanceOperation, // TODO: Name is just a place holder, may change in future
-    onDemandRebalance
+    canCompleteSwap,
+    completeSwapIfPossible,
+    onDemandRebalance,
+    isEvacuateFinished
   }
 
   @Context

@@ -42,6 +42,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.apache.helix.ConfigAccessor;
 import org.apache.helix.HelixException;
 import org.apache.helix.manager.zk.ZKHelixDataAccessor;
@@ -81,43 +82,88 @@ public class MaintenanceManagementService {
   public static final String HELIX_CUSTOM_STOPPABLE_CHECK = "CustomInstanceStoppableCheck";
   public static final String OPERATION_CONFIG_SHARED_INPUT = "OperationConfigSharedInput";
 
+  public static final Set<StoppableCheck.Category> SKIPPABLE_HEALTH_CHECK_CATEGORIES =
+      ImmutableSet.of(StoppableCheck.Category.CUSTOM_INSTANCE_CHECK,
+          StoppableCheck.Category.CUSTOM_PARTITION_CHECK);
+
   private final ConfigAccessor _configAccessor;
   private final CustomRestClient _customRestClient;
   private final String _namespace;
   private final boolean _skipZKRead;
   private final HelixDataAccessorWrapper _dataAccessor;
   private final Set<String> _nonBlockingHealthChecks;
+  private final Set<StoppableCheck.Category> _skipHealthCheckCategories;
+  // Set the default value of _skipStoppableHealthCheckList to be an empty list to
+  // maintain the backward compatibility with users who don't use MaintenanceManagementServiceBuilder
+  // to create the MaintenanceManagementService object.
+  private List<HealthCheck> _skipStoppableHealthCheckList = Collections.emptyList();
 
   public MaintenanceManagementService(ZKHelixDataAccessor dataAccessor,
       ConfigAccessor configAccessor, boolean skipZKRead, String namespace) {
-    this(dataAccessor, configAccessor, CustomRestClientFactory.get(), skipZKRead,
+    this(new HelixDataAccessorWrapper(dataAccessor, CustomRestClientFactory.get(), namespace),
+        configAccessor, CustomRestClientFactory.get(), skipZKRead, Collections.emptySet(),
         Collections.emptySet(), namespace);
   }
 
   public MaintenanceManagementService(ZKHelixDataAccessor dataAccessor,
       ConfigAccessor configAccessor, boolean skipZKRead, Set<String> nonBlockingHealthChecks,
       String namespace) {
-    this(dataAccessor, configAccessor, CustomRestClientFactory.get(), skipZKRead,
-        nonBlockingHealthChecks, namespace);
+    this(new HelixDataAccessorWrapper(dataAccessor, CustomRestClientFactory.get(), namespace),
+        configAccessor, CustomRestClientFactory.get(), skipZKRead, nonBlockingHealthChecks,
+        Collections.emptySet(), namespace);
   }
 
   public MaintenanceManagementService(ZKHelixDataAccessor dataAccessor,
       ConfigAccessor configAccessor, boolean skipZKRead, boolean continueOnFailure,
       String namespace) {
-    this(dataAccessor, configAccessor, CustomRestClientFactory.get(), skipZKRead,
+    this(new HelixDataAccessorWrapper(dataAccessor, CustomRestClientFactory.get(), namespace),
+        configAccessor, CustomRestClientFactory.get(), skipZKRead,
         continueOnFailure ? Collections.singleton(ALL_HEALTH_CHECK_NONBLOCK)
-            : Collections.emptySet(), namespace);
+            : Collections.emptySet(), Collections.emptySet(), namespace);
+  }
+
+  public MaintenanceManagementService(ZKHelixDataAccessor dataAccessor,
+      ConfigAccessor configAccessor, boolean skipZKRead, boolean continueOnFailure,
+      Set<StoppableCheck.Category> skipHealthCheckCategories, String namespace) {
+    this(new HelixDataAccessorWrapper(dataAccessor, CustomRestClientFactory.get(), namespace),
+        configAccessor, CustomRestClientFactory.get(), skipZKRead,
+        continueOnFailure ? Collections.singleton(ALL_HEALTH_CHECK_NONBLOCK)
+            : Collections.emptySet(),
+        skipHealthCheckCategories != null ? skipHealthCheckCategories : Collections.emptySet(),
+        namespace);
   }
 
   @VisibleForTesting
-  MaintenanceManagementService(ZKHelixDataAccessor dataAccessor, ConfigAccessor configAccessor,
-      CustomRestClient customRestClient, boolean skipZKRead, Set<String> nonBlockingHealthChecks,
+  MaintenanceManagementService(HelixDataAccessorWrapper dataAccessorWrapper,
+      ConfigAccessor configAccessor, CustomRestClient customRestClient, boolean skipZKRead,
+      Set<String> nonBlockingHealthChecks, Set<StoppableCheck.Category> skipHealthCheckCategories,
       String namespace) {
-    _dataAccessor = new HelixDataAccessorWrapper(dataAccessor, customRestClient, namespace);
+    _dataAccessor = dataAccessorWrapper;
     _configAccessor = configAccessor;
     _customRestClient = customRestClient;
     _skipZKRead = skipZKRead;
     _nonBlockingHealthChecks = nonBlockingHealthChecks;
+    _skipHealthCheckCategories =
+        skipHealthCheckCategories != null ? skipHealthCheckCategories : Collections.emptySet();
+    _namespace = namespace;
+  }
+
+  private MaintenanceManagementService(ZKHelixDataAccessor dataAccessor,
+      ConfigAccessor configAccessor, CustomRestClient customRestClient, boolean skipZKRead,
+      Set<String> nonBlockingHealthChecks, Set<StoppableCheck.Category> skipHealthCheckCategories,
+      List<HealthCheck> skipStoppableHealthCheckList, String namespace) {
+    _dataAccessor =
+        new HelixDataAccessorWrapper(dataAccessor, customRestClient,
+            namespace);
+    _configAccessor = configAccessor;
+    _customRestClient = customRestClient;
+    _skipZKRead = skipZKRead;
+    _nonBlockingHealthChecks =
+        nonBlockingHealthChecks == null ? Collections.emptySet() : nonBlockingHealthChecks;
+    _skipHealthCheckCategories =
+        skipHealthCheckCategories == null ? Collections.emptySet() : skipHealthCheckCategories;
+    _skipStoppableHealthCheckList = skipStoppableHealthCheckList == null ? Collections.emptyList()
+            : skipStoppableHealthCheckList;
     _namespace = namespace;
   }
 
@@ -316,17 +362,23 @@ public class MaintenanceManagementService {
    */
   public StoppableCheck getInstanceStoppableCheck(String clusterId, String instanceName,
       String jsonContent) throws IOException {
-    return batchGetInstancesStoppableChecks(clusterId, ImmutableList.of(instanceName), jsonContent)
-        .get(instanceName);
+    return batchGetInstancesStoppableChecks(clusterId, ImmutableList.of(instanceName),
+        jsonContent).get(instanceName);
   }
-
 
   public Map<String, StoppableCheck> batchGetInstancesStoppableChecks(String clusterId,
       List<String> instances, String jsonContent) throws IOException {
+    return batchGetInstancesStoppableChecks(clusterId, instances, jsonContent,
+        Collections.emptySet());
+  }
+
+  public Map<String, StoppableCheck> batchGetInstancesStoppableChecks(String clusterId,
+      List<String> instances, String jsonContent, Set<String> toBeStoppedInstances) throws IOException {
     Map<String, StoppableCheck> finalStoppableChecks = new HashMap<>();
     // helix instance check.
     List<String> instancesForCustomInstanceLevelChecks =
-        batchHelixInstanceStoppableCheck(clusterId, instances, finalStoppableChecks);
+        batchHelixInstanceStoppableCheck(clusterId, instances, finalStoppableChecks,
+            toBeStoppedInstances);
     // custom check, includes partition check.
     batchCustomInstanceStoppableCheck(clusterId, instancesForCustomInstanceLevelChecks,
         finalStoppableChecks, getMapFromJsonPayload(jsonContent));
@@ -418,10 +470,11 @@ public class MaintenanceManagementService {
   }
 
   private List<String> batchHelixInstanceStoppableCheck(String clusterId,
-      Collection<String> instances, Map<String, StoppableCheck> finalStoppableChecks) {
-    Map<String, Future<StoppableCheck>> helixInstanceChecks = instances.stream().collect(Collectors
-        .toMap(Function.identity(),
-            instance -> POOL.submit(() -> performHelixOwnInstanceCheck(clusterId, instance))));
+      Collection<String> instances, Map<String, StoppableCheck> finalStoppableChecks,
+      Set<String> toBeStoppedInstances) {
+    Map<String, Future<StoppableCheck>> helixInstanceChecks = instances.stream().collect(
+        Collectors.toMap(Function.identity(), instance -> POOL.submit(
+            () -> performHelixOwnInstanceCheck(clusterId, instance, toBeStoppedInstances))));
     // finalStoppableChecks contains instances that does not pass this health check
     return filterInstancesForNextCheck(helixInstanceChecks, finalStoppableChecks);
   }
@@ -433,27 +486,37 @@ public class MaintenanceManagementService {
       return instances;
     }
     RESTConfig restConfig = _configAccessor.getRESTConfig(clusterId);
-    if (restConfig == null) {
+    if (restConfig == null && (
+        !_skipHealthCheckCategories.contains(StoppableCheck.Category.CUSTOM_INSTANCE_CHECK)
+            || !_skipHealthCheckCategories.contains(
+            StoppableCheck.Category.CUSTOM_PARTITION_CHECK))) {
       String errorMessage = String.format(
           "The cluster %s hasn't enabled client side health checks yet, "
               + "thus the stoppable check result is inaccurate", clusterId);
       LOG.error(errorMessage);
       throw new HelixException(errorMessage);
     }
-    Map<String, Future<StoppableCheck>> customInstanceLevelChecks = instances.stream().collect(
-        Collectors.toMap(Function.identity(), instance -> POOL.submit(
-            () -> performCustomInstanceCheck(clusterId, instance, restConfig.getBaseUrl(instance),
-                customPayLoads))));
-    List<String> instancesForCustomPartitionLevelChecks =
-        filterInstancesForNextCheck(customInstanceLevelChecks, finalStoppableChecks);
-    if (!instancesForCustomPartitionLevelChecks.isEmpty()) {
+
+    List<String> instancesForCustomPartitionLevelChecks;
+    if (!_skipHealthCheckCategories.contains(StoppableCheck.Category.CUSTOM_INSTANCE_CHECK)) {
+      Map<String, Future<StoppableCheck>> customInstanceLevelChecks = instances.stream().collect(
+          Collectors.toMap(Function.identity(), instance -> POOL.submit(
+              () -> performCustomInstanceCheck(clusterId, instance, restConfig.getBaseUrl(instance),
+                  customPayLoads))));
+      instancesForCustomPartitionLevelChecks =
+          filterInstancesForNextCheck(customInstanceLevelChecks, finalStoppableChecks);
+    } else {
+      instancesForCustomPartitionLevelChecks = instances;
+    }
+
+    if (!instancesForCustomPartitionLevelChecks.isEmpty() && !_skipHealthCheckCategories.contains(
+        StoppableCheck.Category.CUSTOM_PARTITION_CHECK)) {
       // add to finalStoppableChecks regardless of stoppable or not.
       Map<String, StoppableCheck> instancePartitionLevelChecks =
           performPartitionsCheck(instancesForCustomPartitionLevelChecks, restConfig,
               customPayLoads);
       List<String> instancesForFollowingChecks = new ArrayList<>();
-      for (Map.Entry<String, StoppableCheck> instancePartitionStoppableCheckEntry : instancePartitionLevelChecks
-          .entrySet()) {
+      for (Map.Entry<String, StoppableCheck> instancePartitionStoppableCheckEntry : instancePartitionLevelChecks.entrySet()) {
         String instance = instancePartitionStoppableCheckEntry.getKey();
         StoppableCheck stoppableCheck = instancePartitionStoppableCheckEntry.getValue();
         addStoppableCheck(finalStoppableChecks, instance, stoppableCheck);
@@ -465,6 +528,8 @@ public class MaintenanceManagementService {
       }
       return instancesForFollowingChecks;
     }
+
+    // This means that we skipped
     return instancesForCustomPartitionLevelChecks;
   }
 
@@ -474,13 +539,14 @@ public class MaintenanceManagementService {
     Map<String, MaintenanceManagementInstanceInfo> instanceInfos = new HashMap<>();
     Map<String, StoppableCheck> finalStoppableChecks = new HashMap<>();
     // TODO: Right now user can only choose from HelixInstanceStoppableCheck and
-    // CostumeInstanceStoppableCheck. We should add finer grain check groups to choose from
+    // CustomInstanceStoppableCheck. We should add finer grain check groups to choose from
     // i.e. HELIX:INSTANCE_NOT_ENABLED, CUSTOM_PARTITION_HEALTH_FAILURE:PARTITION_INITIAL_STATE_FAIL etc.
     for (String healthCheck : healthChecks) {
       if (healthCheck.equals(HELIX_INSTANCE_STOPPABLE_CHECK)) {
         // this is helix own check
         instancesForNext =
-            batchHelixInstanceStoppableCheck(clusterId, instancesForNext, finalStoppableChecks);
+            batchHelixInstanceStoppableCheck(clusterId, instancesForNext, finalStoppableChecks,
+                Collections.emptySet());
       } else if (healthCheck.equals(HELIX_CUSTOM_STOPPABLE_CHECK)) {
         // custom check, includes custom Instance check and partition check.
         instancesForNext =
@@ -528,10 +594,7 @@ public class MaintenanceManagementService {
       String instance = entry.getKey();
       try {
         StoppableCheck stoppableCheck = entry.getValue().get();
-        if (!stoppableCheck.isStoppable()) {
-          // put the check result of the failed-to-stop instances
-          addStoppableCheck(finalStoppableCheckByInstance, instance, stoppableCheck);
-        }
+        addStoppableCheck(finalStoppableCheckByInstance, instance, stoppableCheck);
         if (stoppableCheck.isStoppable() || isNonBlockingCheck(stoppableCheck)) {
           // instance passed this around of check or mandatory all checks
           // will be checked in the next round
@@ -572,10 +635,14 @@ public class MaintenanceManagementService {
     return true;
   }
 
-  private StoppableCheck performHelixOwnInstanceCheck(String clusterId, String instanceName) {
+  private StoppableCheck performHelixOwnInstanceCheck(String clusterId, String instanceName,
+      Set<String> toBeStoppedInstances) {
     LOG.info("Perform helix own custom health checks for {}/{}", clusterId, instanceName);
+    List<HealthCheck> healthChecksToExecute = new ArrayList<>(HealthCheck.STOPPABLE_CHECK_LIST);
+    healthChecksToExecute.removeAll(_skipStoppableHealthCheckList);
     Map<String, Boolean> helixStoppableCheck =
-        getInstanceHealthStatus(clusterId, instanceName, HealthCheck.STOPPABLE_CHECK_LIST);
+        getInstanceHealthStatus(clusterId, instanceName, healthChecksToExecute,
+            toBeStoppedInstances);
 
     return new StoppableCheck(helixStoppableCheck, StoppableCheck.Category.HELIX_OWN_CHECK);
   }
@@ -669,6 +736,12 @@ public class MaintenanceManagementService {
   @VisibleForTesting
   protected Map<String, Boolean> getInstanceHealthStatus(String clusterId, String instanceName,
       List<HealthCheck> healthChecks) {
+    return getInstanceHealthStatus(clusterId, instanceName, healthChecks, Collections.emptySet());
+  }
+
+  @VisibleForTesting
+  protected Map<String, Boolean> getInstanceHealthStatus(String clusterId, String instanceName,
+      List<HealthCheck> healthChecks, Set<String> toBeStoppedInstances) {
     Map<String, Boolean> healthStatus = new HashMap<>();
     for (HealthCheck healthCheck : healthChecks) {
       switch (healthCheck) {
@@ -716,7 +789,7 @@ public class MaintenanceManagementService {
           break;
         case MIN_ACTIVE_REPLICA_CHECK_FAILED:
           healthStatus.put(HealthCheck.MIN_ACTIVE_REPLICA_CHECK_FAILED.name(),
-              InstanceValidationUtil.siblingNodesActiveReplicaCheck(_dataAccessor, instanceName));
+              InstanceValidationUtil.siblingNodesActiveReplicaCheck(_dataAccessor, instanceName, toBeStoppedInstances));
           break;
         default:
           LOG.error("Unsupported health check: {}", healthCheck);
@@ -725,5 +798,88 @@ public class MaintenanceManagementService {
     }
 
     return healthStatus;
+  }
+
+  public static class MaintenanceManagementServiceBuilder {
+    private ConfigAccessor _configAccessor;
+    private boolean _skipZKRead;
+    private String _namespace;
+    private ZKHelixDataAccessor _dataAccessor;
+    private CustomRestClient _customRestClient;
+    private Set<String> _nonBlockingHealthChecks;
+    private Set<StoppableCheck.Category> _skipHealthCheckCategories = Collections.emptySet();
+    private List<HealthCheck> _skipStoppableHealthCheckList = Collections.emptyList();
+
+    public MaintenanceManagementServiceBuilder setConfigAccessor(ConfigAccessor configAccessor) {
+      _configAccessor = configAccessor;
+      return this;
+    }
+
+    public MaintenanceManagementServiceBuilder setSkipZKRead(boolean skipZKRead) {
+      _skipZKRead = skipZKRead;
+      return this;
+    }
+
+    public MaintenanceManagementServiceBuilder setNamespace(String namespace) {
+      _namespace = namespace;
+      return this;
+    }
+
+    public MaintenanceManagementServiceBuilder setDataAccessor(
+        ZKHelixDataAccessor dataAccessor) {
+      _dataAccessor = dataAccessor;
+      return this;
+    }
+
+    public MaintenanceManagementServiceBuilder setCustomRestClient(
+        CustomRestClient customRestClient) {
+      _customRestClient = customRestClient;
+      return this;
+    }
+
+    public MaintenanceManagementServiceBuilder setNonBlockingHealthChecks(
+        Set<String> nonBlockingHealthChecks) {
+      _nonBlockingHealthChecks = nonBlockingHealthChecks;
+      return this;
+    }
+
+    public MaintenanceManagementServiceBuilder setSkipHealthCheckCategories(
+        Set<StoppableCheck.Category> skipHealthCheckCategories) {
+      _skipHealthCheckCategories = skipHealthCheckCategories;
+      return this;
+    }
+
+    public MaintenanceManagementServiceBuilder setSkipStoppableHealthCheckList(
+        List<HealthCheck> skipStoppableHealthCheckList) {
+      _skipStoppableHealthCheckList = skipStoppableHealthCheckList;
+      return this;
+    }
+
+    public MaintenanceManagementService build() {
+      validate();
+      return new MaintenanceManagementService(_dataAccessor, _configAccessor, _customRestClient,
+          _skipZKRead, _nonBlockingHealthChecks, _skipHealthCheckCategories,
+          _skipStoppableHealthCheckList, _namespace);
+    }
+
+    private void validate() throws IllegalArgumentException {
+      List<String> msg = new ArrayList<>();
+      if (_configAccessor == null) {
+        msg.add("'configAccessor' can't be null.");
+      }
+      if (_namespace == null) {
+        msg.add("'namespace' can't be null.");
+      }
+      if (_dataAccessor == null) {
+        msg.add("'_dataAccessor' can't be null.");
+      }
+      if (_customRestClient == null) {
+        msg.add("'customRestClient' can't be null.");
+      }
+      if (msg.size() != 0) {
+        throw new IllegalArgumentException(
+            "One or more mandatory arguments are not set " + msg);
+      }
+    }
   }
 }

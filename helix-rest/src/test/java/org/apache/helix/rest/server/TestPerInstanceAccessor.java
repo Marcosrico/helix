@@ -62,12 +62,13 @@ public class TestPerInstanceAccessor extends AbstractTestClass {
     Map<String, String> params = ImmutableMap.of("client", "espresso");
     Entity entity =
         Entity.entity(OBJECT_MAPPER.writeValueAsString(params), MediaType.APPLICATION_JSON_TYPE);
-    Response response = new JerseyUriRequestBuilder("clusters/{}/instances/{}/stoppable")
-        .format(STOPPABLE_CLUSTER, "instance1").post(this, entity);
+    Response response = new JerseyUriRequestBuilder(
+        "clusters/{}/instances/{}/stoppable?skipHealthCheckCategories=CUSTOM_INSTANCE_CHECK,CUSTOM_PARTITION_CHECK").format(
+        STOPPABLE_CLUSTER, "instance1").post(this, entity);
     String stoppableCheckResult = response.readEntity(String.class);
     Map<String, Object> actualMap = OBJECT_MAPPER.readValue(stoppableCheckResult, Map.class);
-    List<String> failedChecks = Arrays
-        .asList("HELIX:EMPTY_RESOURCE_ASSIGNMENT", "HELIX:INSTANCE_NOT_ENABLED",
+    List<String> failedChecks =
+        Arrays.asList("HELIX:EMPTY_RESOURCE_ASSIGNMENT", "HELIX:INSTANCE_NOT_ENABLED",
             "HELIX:INSTANCE_NOT_STABLE");
     Map<String, Object> expectedMap =
         ImmutableMap.of("stoppable", false, "failedChecks", failedChecks);
@@ -500,6 +501,59 @@ public class TestPerInstanceAccessor extends AbstractTestClass {
     instanceConfig = _configAccessor.getInstanceConfig(CLUSTER_NAME, INSTANCE_NAME);
     Assert.assertEquals(
         instanceConfig.getInstanceOperation(), "");
+
+    // test canCompleteSwap
+    Response canCompleteSwapResponse =
+        new JerseyUriRequestBuilder("clusters/{}/instances/{}?command=canCompleteSwap").format(
+            CLUSTER_NAME, INSTANCE_NAME).post(this, entity);
+    Assert.assertEquals(canCompleteSwapResponse.getStatus(), Response.Status.OK.getStatusCode());
+    Map<String, Object> responseMap =
+        OBJECT_MAPPER.readValue(canCompleteSwapResponse.readEntity(String.class), Map.class);
+    Assert.assertFalse((boolean) responseMap.get("successful"));
+
+    // test completeSwapIfPossible
+    Response completeSwapIfPossibleResponse = new JerseyUriRequestBuilder(
+        "clusters/{}/instances/{}?command=completeSwapIfPossible").format(CLUSTER_NAME,
+        INSTANCE_NAME).post(this, entity);
+    Assert.assertEquals(completeSwapIfPossibleResponse.getStatus(),
+        Response.Status.OK.getStatusCode());
+    responseMap =
+        OBJECT_MAPPER.readValue(completeSwapIfPossibleResponse.readEntity(String.class), Map.class);
+    Assert.assertFalse((boolean) responseMap.get("successful"));
+
+    // test isEvacuateFinished on instance with EVACUATE but has currentState
+    new JerseyUriRequestBuilder("clusters/{}/instances/{}?command=setInstanceOperation&instanceOperation=EVACUATE")
+        .format(CLUSTER_NAME, INSTANCE_NAME).post(this, entity);
+    instanceConfig = _configAccessor.getInstanceConfig(CLUSTER_NAME, INSTANCE_NAME);
+    Assert.assertEquals(
+        instanceConfig.getInstanceOperation(), InstanceConstants.InstanceOperation.EVACUATE.toString());
+
+    Response response = new JerseyUriRequestBuilder("clusters/{}/instances/{}?command=isEvacuateFinished")
+        .format(CLUSTER_NAME, INSTANCE_NAME).post(this, entity);
+    Map<String, Boolean> evacuateFinishedresult = OBJECT_MAPPER.readValue(response.readEntity(String.class), Map.class);
+    Assert.assertEquals(response.getStatus(), Response.Status.OK.getStatusCode());
+    Assert.assertFalse(evacuateFinishedresult.get("successful"));
+
+    // test isEvacuateFinished on instance with EVACUATE and no currentState
+    // Create new instance so no currentState or messages assigned to it
+    String test_instance_name = INSTANCE_NAME + "_foo";
+    InstanceConfig newInstanceConfig = new InstanceConfig(test_instance_name);
+    Entity instanceEntity = Entity.entity(OBJECT_MAPPER.writeValueAsString(newInstanceConfig.getRecord()),
+        MediaType.APPLICATION_JSON_TYPE);
+    new JerseyUriRequestBuilder("clusters/{}/instances/{}").format(CLUSTER_NAME, test_instance_name)
+        .put(this, instanceEntity);
+
+    new JerseyUriRequestBuilder("clusters/{}/instances/{}?command=setInstanceOperation&instanceOperation=EVACUATE")
+        .format(CLUSTER_NAME, test_instance_name).post(this, entity);
+    instanceConfig = _configAccessor.getInstanceConfig(CLUSTER_NAME, test_instance_name);
+    Assert.assertEquals(
+        instanceConfig.getInstanceOperation(), InstanceConstants.InstanceOperation.EVACUATE.toString());
+
+    response = new JerseyUriRequestBuilder("clusters/{}/instances/{}?command=isEvacuateFinished")
+        .format(CLUSTER_NAME, test_instance_name).post(this, entity);
+    evacuateFinishedresult = OBJECT_MAPPER.readValue(response.readEntity(String.class), Map.class);
+    Assert.assertEquals(response.getStatus(), Response.Status.OK.getStatusCode());
+    Assert.assertTrue(evacuateFinishedresult.get("successful"));
     System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 
